@@ -5,7 +5,6 @@ library(tidytext)
 library(jsonlite)
 library(httr)
 library(wordcloud)
-library(proxy)
 
 
 # get job descriptions
@@ -50,7 +49,7 @@ drawWordCloud <- function(jobs){
   job_tokens %>% group_by(word) %>% summarise(n=n()) %>% 
     with(wordcloud(
       word, n, min.freq = 2, max.words = 100, random.order = FALSE,
-      colors = brewer.pal(8, "Dark2")))
+      colors = brewer.pal(8, "Dark2"))) 
 }
 
 top10Word <- function(jobs){
@@ -68,19 +67,20 @@ top10Word <- function(jobs){
 }
 
 
-cluster <- function(jobs){
+
+getTFIDF <- function(jobs){
   text <- jobs$description
   text <- str_replace_all(text, "<.*>", " ")
   text <- str_replace_all(text, "\n", " ")
   jobs_df <- tibble(id=1:length(text), text=text)
-  job_tokens <- jobs_df %>% 
+  jobs_df %>% 
     unnest_tokens(word, text) %>% 
-    anti_join(stop_words)  %>% group_by(id, word) %>% summarise(n=n()) %>% 
-    filter(nchar(word)>2) %>% filter(!grepl("^\\d+\\.?\\d+$", word))
-  docsdissim <- dist(as.matrix(cast_dtm(job_tokens, id, word, n)), method = "cosine")
-  h <- hclust(docsdissim, method = "ward.D2")
-  plot(h)
+    anti_join(stop_words) %>% group_by(id, word) %>% summarise(n=n()) %>% filter(n>1) %>%
+    bind_tf_idf(word, id, n) %>%
+    top_n(3, tf_idf) %>%
+    select(id, word, n, tf_idf) %>% ungroup()
 }
+
 
 
 ui <- fluidPage(
@@ -104,7 +104,7 @@ ui <- fluidPage(
                  h2("Top 10 words"),
                  plotOutput("top")
                  ),
-        tabPanel("Cluster", plotOutput("cluster"))
+        tabPanel("TF-IDF", DTOutput("tf"))
       )
         
     )
@@ -153,11 +153,12 @@ server <- function(input, output) {
     }
   })
   
-  output$cluster <- renderPlot({
+  output$tf <- renderDataTable({
     dat <- data()
     if(length(dat)==0){
+      data.frame(text="No Result")
     }else{
-      cluster(dat)
+      getTFIDF(dat)
     }
   })
   
